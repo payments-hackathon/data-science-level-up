@@ -1,0 +1,59 @@
+# ---------- TRANSACTIONS ----------
+
+## Keep
+[<day of week - one hot> <time of day - mins since start of day>]
+	- TX_TS                                 - TIMESTAMP               - Timestamp of transaction
+
+[x] - TX_AMOUNT                             - NUMERIC                 - Dollar amount of transaction
+[x] - TRANSACTION_GOODS_AND_SERVICES_AMOUNT - NUMERIC                 - Amount of the transaction which accounts for goods and services.
+[x] - TRANSACTION_CASHBACK_AMOUNT           - NUMERIC                 - Amount of the transaction which account for cashback.
+[<one hot>]
+	- TRANSACTION_TYPE                      - STRING                  - The type of payment of the current transaction (e.g. Purchase, Refund, Purchase with cashback)
+[x] - TRANSACTION_STATUS                    - STRING                  - The status of the current transaction. In general a payment transaction can go through multiple statuses, some technical and some with business relevance like Authorized indicating that the payment transaction has been authorized by the card issuer, or Settled indicating that the payment transaction has been settled with all the parties.
+[x] - FAILURE_CODE                          - STRING                  - In case of rejection the credit card failure code
+[x] - IS_RECURRING_TRANSACTION              - BOOLEAN                 - If the transaction is part of a subscription or installment plan the indicator will be Y
+[<one hot>] - ACQUIRER_ID                           - STRING                  - The acquirer which is processing the transaction. Depending on the setup the merchant can process payments via a PSP (payment service provider) which can potentially redirect the transactions to multiple acquirers.
+
+
+
+## TODO: Look into adding some of these fields later
+[<customer location>] - CUSTOMER_ID                           - STRING                  - Unique identifier of customer
+[<terminal location>] - TERMINAL_ID                           - STRING                  - Unique identifier of terminal
+[<merchant details>]  - MERCHANT_ID                           - STRING                  - The identifier of the merchant which is making the sale.
+
+## Remove
+[] - CARD_DATA                             - STRING                  - Masked PAN number of the card associated with the transaction
+[] - CARD_BRAND                            - STRING                  - The Brand of the card associated with the transaction (e.g. Visa, MasterCard)
+[] - FAILURE_REASON                        - STRING                  - In case of rejection the reason of the rejection
+[] - TRANSACTION_CURRENCY                  - STRING                  - The currency of the current transaction
+[] - CARD_COUNTRY_CODE                     - STRING                  - The country code where the card was issued
+[] - TX_ID                                 - Unique ID of transaction
+[] - CARD_EXPIRY_DATE                      - STRING                  - The expiry date of the card in the MM/YY format.
+
+
+# ---------- MERCHANTS ----------
+// TODO: Sort these out later
+
+[x] - MERCHANT_ID                        - STRING - Unique ID of the merchant
+
+[ ] - BUSINESS_TYPE                      - STRING - The business structure or type of the company e.g. Corporation, Limited Liability Company (LLC)
+[ ] - MCC_CODE                           - STRING - Four                                                                                                                                                                                               -digit numbers that describe a merchant's primary business activities. MCCs are used by credit card issuers, acquirers, schemes to identify the type of business in which a merchant is engaged.
+[ ] - LEGAL_NAME                         - STRING - The name of the legal entity
+[ ] - FOUNDATION_DATE                    - DATE   - The foundation or incorporate date, the date when the company was founded
+[ ] - TAX_EXCEMPT_INDICATOR              - BOOLEAN- Indicates if the company is free from tax payment
+[ ] - OUTLET_TYPE                        - STRING - Indicates the type of payments supported for the particular location e.g. Face to face, eCommerce or both
+[ ] - ACTIVE_FROM                        - DATE   - The date when the company become active
+[ ] - TRADING_FROM                       - DATE   - The date when the company started trading
+[ ] - ANNUAL_TURNOVER_CARD               - INTEGER- The estimated annual sales which were processed as card transactions
+[ ] - ANNUAL_TURNOVER                    - INTEGER- The estimated annual total sales irrespective of the payment method
+[ ] - AVERAGE_TICKET_SALE_AMOUNT         - INTEGER- The average amount of a sale. It can vary depending on the type of business e.g. luxury goods, or car dealers might have higher average ticket sale amount.
+[ ] - PAYMENT_PERCENTAGE_FACE_TO_FACE    - INTEGER- The percentage of face to face payments from the total sales
+[ ] - PAYMENT_PERCENTAGE_ECOM            - INTEGER- The percentage of eCommerce payments from the total sales
+[ ] - PAYMENT_PERCENTAGE_MOTO            - INTEGER- The percentage of MOTO payments from the total sales. MOTO stands for Mail Order/Telephone Order (MOTO) transaction and it is a card                                                               -not                                                                                                                                                                                            -present transaction where the shopper provides their order and payment details by regular mail (not email), fax, or telephone.
+[ ] - DEPOSIT_REQUIRED_PERCENTAGE        - INTEGER- In general merchants are required to keep a reserve or a deposit with the payment provider to mitigate any potential risks associated with payment processing (e.g. chargebacks or any other risks)
+[ ] - The percentage represents the required percentage of deposits compared to turnover
+[ ] - DEPOSIT_PERCENTAGE                 - INTEGER- The actual deposit percentage from the turnover
+[ ] - DELIVERY_SAME_DAYS_PERCENTAGE      - INTEGER- The percentage of goods and services delivered in the same day by the merchant
+[ ] - DELIVERY_WEEK_ONE_PERCENTAGE       - INTEGER- The percentage of goods and services delivered by the merchant in the first week after the order was issued
+[ ] - DELIVERY_WEEK_TWO_PERCENTAGE       - INTEGER- The percentage of goods and services delivered by the merchant in week two after the order was issued
+[ ] - DELIVERY_OVER_TWO_WEEKS_PERCENTAGE - INTEGER- The percentage of goods and services delivered by the merchant in after two weeks.

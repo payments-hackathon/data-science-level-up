@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# %%
+# flake8: noqa
+
+# %% Imports
 import pandas as pd
 import numpy as np
 import torch
@@ -12,7 +14,8 @@ from sklearn.metrics import roc_auc_score
 import warnings
 warnings.filterwarnings('ignore')
 
-# %%
+
+# %% Definitions
 class FraudDataset(Dataset):
     def __init__(self, X, y=None):
         self.X = torch.FloatTensor(X)
@@ -43,22 +46,19 @@ class FraudNet(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
+
+# %% Data Loading & Preprocessing
 def load_and_preprocess_data():
     # Load datasets
     customers = pd.read_csv('data/Payments Fraud DataSet/customers.csv')
     terminals = pd.read_csv('data/Payments Fraud DataSet/terminals.csv')
     merchants = pd.read_csv('data/Payments Fraud DataSet/merchants.csv')
     train_tx = pd.read_csv('data/Payments Fraud DataSet/transactions_train.csv')
-    test_tx = pd.read_csv('data/Payments Fraud DataSet/transactions_test.csv')
     
     # Merge transaction data with customer and terminal info
-    train_data = train_tx.merge(customers, on='CUSTOMER_ID', how='left')
-    train_data = train_data.merge(terminals, on='TERMINAL_ID', how='left')
-    train_data = train_data.merge(merchants, on='MERCHANT_ID', how='left')
-    
-    test_data = test_tx.merge(customers, on='CUSTOMER_ID', how='left')
-    test_data = test_data.merge(terminals, on='TERMINAL_ID', how='left')
-    test_data = test_data.merge(merchants, on='MERCHANT_ID', how='left')
+    data = train_tx.merge(customers, on='CUSTOMER_ID', how='left')
+    data = data.merge(terminals, on='TERMINAL_ID', how='left')
+    data = data.merge(merchants, on='MERCHANT_ID', how='left')
     
     # Feature engineering
     def engineer_features(df):
@@ -77,8 +77,7 @@ def load_and_preprocess_data():
         
         return df
     
-    train_data = engineer_features(train_data)
-    test_data = engineer_features(test_data)
+    data = engineer_features(data)
     
     # Select numerical features
     num_features = ['TX_AMOUNT', 'TRANSACTION_GOODS_AND_SERVICES_AMOUNT', 'TRANSACTION_CASHBACK_AMOUNT',
@@ -92,39 +91,40 @@ def load_and_preprocess_data():
     
     # Handle missing values and encode categoricals
     for col in num_features:
-        if col in train_data.columns:
-            train_data[col] = train_data[col].fillna(train_data[col].median())
-            test_data[col] = test_data[col].fillna(train_data[col].median())
+        if col in data.columns:
+            data[col] = data[col].fillna(data[col].median())
     
     # Encode categorical variables
-    encoders = {}
     for col in cat_features:
-        if col in train_data.columns:
+        if col in data.columns:
             le = LabelEncoder()
-            train_data[col] = train_data[col].fillna('unknown')
-            test_data[col] = test_data[col].fillna('unknown')
-            
-            # Fit on combined data to handle unseen categories
-            combined_values = pd.concat([train_data[col], test_data[col]]).unique()
-            le.fit(combined_values)
-            
-            train_data[col] = le.transform(train_data[col])
-            test_data[col] = le.transform(test_data[col])
-            encoders[col] = le
+            data[col] = data[col].fillna('unknown')
+            data[col] = le.transform(data[col])
     
     # Prepare feature matrix
-    feature_cols = [col for col in num_features + cat_features if col in train_data.columns]
-    X_train = train_data[feature_cols].values
-    y_train = train_data['TX_FRAUD'].values
-    X_test = test_data[feature_cols].values
+    feature_cols = [col for col in num_features + cat_features if col in data.columns]
+    X = data[feature_cols].values
+    y = data['TX_FRAUD'].values
+    
+    # Split into train/test (80/20)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     # Scale features
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
     
-    return X_train, y_train, X_test, test_data[['TX_ID']]
+    return X_train, y_train, X_test, y_test
 
+
+print("Loading and preprocessing data...")
+X_train, y_train, X_test, y_test = load_and_preprocess_data()
+
+print(f"Training data shape: {X_train.shape}")
+print(f"Test data shape: {X_test.shape}")
+print(f"Fraud rate: {y_train.mean():.4f}")
+
+# %% Training
 def train_model(X_train, y_train):
     # Split data
     X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42, stratify=y_train)
@@ -169,41 +169,28 @@ def train_model(X_train, y_train):
     
     return model
 
-def make_predictions(model, X_test, test_ids):
+print("Training model...")
+model = train_model(X_train, y_train)
+
+
+# %% Evaluation
+def evaluate_model(model, X_test, y_test):
     model.eval()
-    test_dataset = FraudDataset(X_test)
+    test_dataset = FraudDataset(X_test, y_test)
     test_loader = DataLoader(test_dataset, batch_size=1024, shuffle=False)
     
     predictions = []
+    actuals = []
     with torch.no_grad():
-        for batch_X in test_loader:
+        for batch_X, batch_y in test_loader:
             outputs = model(batch_X).squeeze()
             predictions.extend(outputs.numpy())
+            actuals.extend(batch_y.numpy())
     
-    # Create submission
-    submission = pd.DataFrame({
-        'TX_ID': test_ids['TX_ID'],
-        'TX_FRAUD': predictions
-    })
-    
-    return submission
+    test_auc = roc_auc_score(actuals, predictions)
+    return test_auc
 
-def main():
-    print("Loading and preprocessing data...")
-    X_train, y_train, X_test, test_ids = load_and_preprocess_data()
-    
-    print(f"Training data shape: {X_train.shape}")
-    print(f"Fraud rate: {y_train.mean():.4f}")
-    
-    print("Training model...")
-    model = train_model(X_train, y_train)
-    
-    print("Making predictions...")
-    submission = make_predictions(model, X_test, test_ids)
-    
-    print("Saving submission...")
-    submission.to_csv('fraud_predictions.csv', index=False)
-    print("Done! Submission saved to fraud_predictions.csv")
 
-if __name__ == "__main__":
-    main()
+print("Evaluating model...")
+test_auc = evaluate_model(model, X_test, y_test)
+print(f"Test AUC: {test_auc:.4f}")
