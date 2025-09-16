@@ -1,18 +1,15 @@
 # ---------- TRANSACTIONS ----------
 
 ## Keep
-[<day of week - one hot> <time of day - mins since start of day>]
-	- TX_TS                                 - TIMESTAMP               - Timestamp of transaction
-
-[x] - TX_AMOUNT                             - NUMERIC                 - Dollar amount of transaction
-[x] - TRANSACTION_GOODS_AND_SERVICES_AMOUNT - NUMERIC                 - Amount of the transaction which accounts for goods and services.
-[x] - TRANSACTION_CASHBACK_AMOUNT           - NUMERIC                 - Amount of the transaction which account for cashback.
-[<one hot>]
-	- TRANSACTION_TYPE                      - STRING                  - The type of payment of the current transaction (e.g. Purchase, Refund, Purchase with cashback)
-[x] - TRANSACTION_STATUS                    - STRING                  - The status of the current transaction. In general a payment transaction can go through multiple statuses, some technical and some with business relevance like Authorized indicating that the payment transaction has been authorized by the card issuer, or Settled indicating that the payment transaction has been settled with all the parties.
-[x] - FAILURE_CODE                          - STRING                  - In case of rejection the credit card failure code
-[x] - IS_RECURRING_TRANSACTION              - BOOLEAN                 - If the transaction is part of a subscription or installment plan the indicator will be Y
-[<one hot>] - ACQUIRER_ID                           - STRING                  - The acquirer which is processing the transaction. Depending on the setup the merchant can process payments via a PSP (payment service provider) which can potentially redirect the transactions to multiple acquirers.
+[day of week (one hot)] & [time of day scaled 0.0-1.0] - TX_TS                                 - TIMESTAMP - Timestamp of transaction
+[as-is]                                                - TX_AMOUNT                             - NUMERIC - Dollar amount of transaction
+[as-is]                                                - TRANSACTION_GOODS_AND_SERVICES_AMOUNT - NUMERIC - Amount of the transaction which accounts for goods and services.
+[as-is]                                                - TRANSACTION_CASHBACK_AMOUNT           - NUMERIC - Amount of the transaction which account for cashback.
+[one hot]                                              - TRANSACTION_TYPE                      - STRING  - The type of payment of the current transaction (e.g. Purchase, Refund, Purchase with cashback)
+[one hot]                                              - TRANSACTION_STATUS                    - STRING  - The status of the current transaction. In general a payment transaction can go through multiple statuses, some technical and some with business relevance like Authorized indicating that the payment transaction has been authorized by the card issuer, or Settled indicating that the payment transaction has been settled with all the parties.
+[one hot]                                              - FAILURE_CODE                          - STRING  - In case of rejection the credit card failure code
+[as-is; zero or one]                                   - IS_RECURRING_TRANSACTION              - BOOLEAN - If the transaction is part of a subscription or installment plan the indicator will be Y
+[one hot]                                              - ACQUIRER_ID                           - STRING  - The acquirer which is processing the transaction. Depending on the setup the merchant can process payments via a PSP (payment service provider) which can potentially redirect the transactions to multiple acquirers.
 
 
 
