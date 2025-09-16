@@ -1,0 +1,13 @@
+[project]
+name = "dslu"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "kagglehub>=0.2.9",
+    "numpy>=1.24.4",
+    "pip>=25.0.1",
+    "torch>=2.5.1",
+]
