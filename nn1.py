@@ -12,7 +12,7 @@ print(f"Training data shape: {X_train.shape}")
 print(f"Test data shape: {X_test.shape}")
 print(f"Fraud rate: {y_train.mean():.4f}")
 
-# %% Model Definition
+# %% Definition
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -34,19 +34,24 @@ class FraudNet(nn.Module):
     def __init__(self, input_size):
         super(FraudNet, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 256),
             nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.4),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
             nn.Dropout(0.3),
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(64, 1)
         )
     
     def forward(self, x):
         return self.fc(x)
 
-# %% Model Training
+# %% Training
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
@@ -92,7 +97,15 @@ def train_model(X_train, y_train):
     
     return model
 
+print("Training model...")
+model = train_model(X_train, y_train)
+
+# %% Evaluation
+
 def evaluate_model(model, X_test, y_test):
+    from sklearn.metrics import confusion_matrix, classification_report
+    import numpy as np
+    
     model.eval()
     test_dataset = FraudDataset(X_test, y_test)
     test_loader = DataLoader(test_dataset, batch_size=1024, shuffle=False)
@@ -105,11 +118,17 @@ def evaluate_model(model, X_test, y_test):
             predictions.extend(outputs.numpy())
             actuals.extend(batch_y.numpy())
     
-    return roc_auc_score(actuals, predictions)
-
-print("Training model...")
-model = train_model(X_train, y_train)
+    test_auc = roc_auc_score(actuals, predictions)
+    pred_binary = (np.array(predictions) > 0.5).astype(int)
+    
+    print(f"Test AUC: {test_auc:.4f}")
+    print("\nConfusion Matrix:")
+    cm = confusion_matrix(actuals, pred_binary)
+    print(f"[[{cm[0,0]:6d} {cm[0,1]:6d}]]")
+    print(f"[[{cm[1,0]:6d} {cm[1,1]:6d}]]")
+    print("  Legit  Fraud")
+    
+    return test_auc
 
 print("Evaluating model...")
 test_auc = evaluate_model(model, X_test, y_test)
-print(f"Test AUC: {test_auc:.4f}")

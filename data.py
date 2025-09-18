@@ -5,6 +5,7 @@
 # %% Data loading & preprocessing
 
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
@@ -29,6 +30,17 @@ def load_and_preprocess_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, p
     numeric_features = train_tx[['TX_AMOUNT', 'TRANSACTION_GOODS_AND_SERVICES_AMOUNT', 
                                 'TRANSACTION_CASHBACK_AMOUNT']].copy()
     
+    # Feature engineering
+    train_tx['amount_log'] = np.log1p(train_tx['TX_AMOUNT'])
+    train_tx['cashback_ratio'] = train_tx['TRANSACTION_CASHBACK_AMOUNT'] / (train_tx['TX_AMOUNT'] + 1e-8)
+    train_tx['goods_ratio'] = train_tx['TRANSACTION_GOODS_AND_SERVICES_AMOUNT'] / (train_tx['TX_AMOUNT'] + 1e-8)
+    train_tx['hour'] = train_tx['TX_TS'].dt.hour
+    train_tx['is_weekend'] = (train_tx['TX_TS'].dt.dayofweek >= 5).astype(int)
+    train_tx['is_night'] = ((train_tx['hour'] >= 22) | (train_tx['hour'] <= 6)).astype(int)
+    
+    # Add engineered features
+    engineered_features = train_tx[['amount_log', 'cashback_ratio', 'goods_ratio', 'is_weekend', 'is_night']]
+    
     # Boolean feature (convert Y/N to 1/0)
     recurring = (train_tx['IS_RECURRING_TRANSACTION'] == 'Y').astype(int)
     
@@ -41,7 +53,7 @@ def load_and_preprocess_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, p
     
     # Combine all features
     features = [dow_dummies, pd.DataFrame({'time_of_day': time_of_day}), 
-                numeric_features, pd.DataFrame({'is_recurring': recurring})]
+                numeric_features, engineered_features, pd.DataFrame({'is_recurring': recurring})]
     features.extend(cat_features)
     
     X = pd.concat(features, axis=1).astype(float)
