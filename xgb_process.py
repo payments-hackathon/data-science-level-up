@@ -130,6 +130,61 @@ def add_frequency_encoding(train_df: pd.DataFrame, test_df: pd.DataFrame, cols: 
     return train_df, test_df
 
 # %% [markdown]
+# Amount rolling stats and behavioral features
+
+# %%
+def add_amount_roll_stats(df: pd.DataFrame, key: str, amount_col: str = "TX_AMOUNT", ts_col: str = "TX_TS") -> pd.DataFrame:
+    work = df[[key, ts_col, amount_col]].copy()
+    work = work.sort_values([key, ts_col])
+
+    work["_amt_"] = work[amount_col].astype("float32")
+    work["_amt2_"] = (work["_amt_"] ** 2).astype("float32")
+
+    g = work.groupby(key, sort=False)
+    ccnt0 = g.cumcount()
+    csum_prev = g["_amt_"].cumsum().shift(1)
+    css_prev = g["_amt2_"].cumsum().shift(1)
+
+    ccnt = ccnt0.astype("float32")
+    mean_prev = csum_prev / ccnt.replace(0, np.nan)
+    denom_n = ccnt.replace(0, np.nan)
+    var_prev = (css_prev - (csum_prev**2) / denom_n) / (denom_n - 1.0)
+    std_prev = np.sqrt(var_prev.clip(lower=0)).astype("float32")
+
+    work[f"mean_amt_{key}"] = mean_prev
+    work[f"std_amt_{key}"] = std_prev
+
+    work = work.sort_index()
+
+    out = df.copy()
+    out[f"mean_amt_{key}"] = work[f"mean_amt_{key}"].values
+    out[f"std_amt_{key}"] = work[f"std_amt_{key}"].values
+
+    eps = np.float32(1e-6)
+    z = (out[amount_col].astype("float32") - out[f"mean_amt_{key}"].fillna(0)) / (out[f"std_amt_{key}"].fillna(0) + eps)
+    out[f"z_amt_{key}"] = z.astype("float32").fillna(0)
+
+    return out
+
+
+def add_last_terminal_distance_and_velocity(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out = out.sort_values("TX_TS")
+    out["prev_x_terminal"] = out.groupby("CUSTOMER_ID", sort=False)["x_terminal_id"].shift(1)
+    out["prev_y_terminal"] = out.groupby("CUSTOMER_ID", sort=False)["y_terminal_id"].shift(1)
+
+    dist = compute_geo_distance(out["x_terminal_id"], out["y_terminal_id"], out["prev_x_terminal"], out["prev_y_terminal"])
+    out["dist_prev_terminal"] = dist.fillna(0).astype("float32")
+
+    if "time_since_last_CUSTOMER_ID_sec" in out.columns:
+        denom = (out["time_since_last_CUSTOMER_ID_sec"].astype("float32").clip(lower=1.0))
+        out["velocity_customer"] = (out["dist_prev_terminal"] / denom).astype("float32")
+    else:
+        out["velocity_customer"] = np.float32(0)
+    out = out.drop(columns=["prev_x_terminal", "prev_y_terminal"])
+    return out
+
+# %% [markdown]
 # Build features
 
 # %%
@@ -186,9 +241,9 @@ def build_features(
             df[f"{col.lower()}_log1p"] = np.log1p(df[col].fillna(0).clip(lower=0)).astype("float32")
 
     df["merchant_tax_exempt_int"] = df.get("TAX_EXCEMPT_INDICATOR", False)
-    df["merchant_tax_exempt_int"] = df["merchant_tax_exempt_int"].fillna(False).astype(int).astype("int8")
+    df["merchant_tax_exempt_int"] = df["merchant_tax_exempt_int"].fillna(False).astype(bool).astype("int8")
     df["is_recurring_int"] = df.get("IS_RECURRING_TRANSACTION", False)
-    df["is_recurring_int"] = df["is_recurring_int"].fillna(False).astype(int).astype("int8")
+    df["is_recurring_int"] = df["is_recurring_int"].fillna(False).astype(bool).astype("int8")
 
     cat_cols = [
         "CARD_BRAND",
@@ -217,6 +272,11 @@ def build_features(
         df[f"count_24h_{key}"] = tmp[f"count_24h_{key}"].astype("float32")
         df[f"count_7d_{key}"] = tmp[f"count_7d_{key}"].astype("float32")
 
+    for key in ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID"]:
+        df = add_amount_roll_stats(df, key=key, amount_col="TX_AMOUNT", ts_col="TX_TS")
+
+    df = add_last_terminal_distance_and_velocity(df)
+
     feat_cols: List[str] = [
         "tx_hour", "tx_dow", "tx_day", "tx_month",
         "months_to_expiry",
@@ -229,6 +289,8 @@ def build_features(
         "merchant_tax_exempt_int", "is_recurring_int",
         "time_since_last_CUSTOMER_ID_sec", "count_24h_CUSTOMER_ID", "count_7d_CUSTOMER_ID",
         "time_since_last_TERMINAL_ID_sec", "count_24h_TERMINAL_ID", "count_7d_TERMINAL_ID",
+        "z_amt_CUSTOMER_ID", "z_amt_TERMINAL_ID", "z_amt_MERCHANT_ID",
+        "dist_prev_terminal", "velocity_customer",
     ] + [f"{c}_code" for c in cat_cols]
 
     for c in feat_cols:
@@ -242,7 +304,7 @@ def build_features(
     if "TX_ID" in df.columns:
         cols_out.append("TX_ID")
 
-    for raw_col in ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID"]:
+    for raw_col in ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID", "CARD_COUNTRY_CODE"]:
         if raw_col in df.columns and raw_col not in cols_out:
             cols_out.append(raw_col)
 
@@ -263,7 +325,7 @@ test_feats, _ = build_features(
     test_raw, data["customers"], data["terminals"], data["merchants"], is_train=False, cat_mappings=cat_maps
 )
 
-freq_cols = ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID"]
+freq_cols = ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID", "CARD_COUNTRY_CODE"]
 train_feats, test_feats = add_frequency_encoding(train_feats, test_feats, cols=[c for c in freq_cols if c in train_feats.columns])
 
 drop_ids = [c for c in freq_cols if c in train_feats.columns]
