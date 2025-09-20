@@ -5,7 +5,8 @@
 # Notebook: Train XGBoost and Create Submission
 #
 # What this script does:
-# - Loads features from CSV
+# - Loads features from CSVs
+# - Performs time-based CV with simple random search
 # - Trains XGBoost
 # - Writes submission.
 
@@ -14,6 +15,7 @@
 
 # %%
 import os
+import random
 import numpy as np
 import pandas as pd
 
@@ -41,7 +43,7 @@ def load_features(feature_dir: str = os.path.join("data", "features")):
     return train, test
 
 # %% [markdown]
-# Simple AUC and split helpers
+# Metrics and splitting
 
 # %%
 def fast_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -56,70 +58,126 @@ def fast_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return float(auc)
 
 
-def train_valid_split_indices(n_rows: int, valid_fraction: float = 0.1):
-    split_idx = int((1.0 - valid_fraction) * n_rows)
-    tr_idx = np.arange(0, split_idx, dtype=int)
-    va_idx = np.arange(split_idx, n_rows, dtype=int)
-    return tr_idx, va_idx
+def time_kfold_indices(n_rows: int, n_folds: int = 3):
+    fold_sizes = [n_rows // n_folds] * n_folds
+    for i in range(n_rows % n_folds):
+        fold_sizes[i] += 1
+    indices = np.arange(n_rows, dtype=int)
+    folds = []
+    start = 0
+    for fs in fold_sizes:
+        end = start + fs
+        folds.append(indices[start:end])
+        start = end
+    return folds
 
 # %% [markdown]
-# Train, evaluate, and create submission
+# CV training and random search
+
+# %%
+def train_eval_xgb(X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.ndarray, params: dict,
+                   num_boost_round: int = 2000, early_stopping_rounds: int = 100, verbose_eval: int = 0):
+    dtrain = xgb.DMatrix(X_tr, label=y_tr)
+    dvalid = xgb.DMatrix(X_va, label=y_va)
+    evals = [(dtrain, "train"), (dvalid, "valid")]
+    bst = xgb.train(
+        params=params,
+        dtrain=dtrain,
+        num_boost_round=num_boost_round,
+        evals=evals,
+        early_stopping_rounds=early_stopping_rounds,
+        verbose_eval=verbose_eval,
+    )
+    best_ntree_limit = getattr(bst, "best_ntree_limit", None)
+    va_pred = bst.predict(dvalid, ntree_limit=best_ntree_limit) if best_ntree_limit else bst.predict(dvalid)
+    auc = fast_auc(y_va.astype(np.int32), va_pred.astype(np.float32))
+    best_iter = getattr(bst, "best_iteration", None)
+    return auc, int(best_iter if best_iter is not None else num_boost_round), bst
+
+
+def random_param_samples(seed: int = 1337, n_samples: int = 8):
+    rng = random.Random(seed)
+    for _ in range(n_samples):
+        yield {
+            "objective": "binary:logistic",
+            "eval_metric": "auc",
+            "tree_method": "hist",
+            "eta": rng.uniform(0.03, 0.08),
+            "max_depth": rng.randint(6, 10),
+            "min_child_weight": rng.uniform(1.0, 5.0),
+            "subsample": rng.uniform(0.7, 1.0),
+            "colsample_bytree": rng.uniform(0.6, 0.9),
+            "lambda": rng.uniform(1.0, 10.0),
+            "gamma": 0.0,
+            "scale_pos_weight": None,
+            "seed": rng.randint(1, 10_000),
+        }
+
+# %% [markdown]
+# Train with time-based CV and select best params
 
 # %%
 train, test = load_features()
 
 label_col = "TX_FRAUD"
 feature_cols = [c for c in train.columns if c not in {label_col, "TX_ID"}]
-X = train[feature_cols].to_numpy(dtype=np.float32)
-y = train[label_col].astype(np.int32).to_numpy()
+X_all = train[feature_cols].to_numpy(dtype=np.float32)
+y_all = train[label_col].astype(np.int32).to_numpy()
 
-tr_idx, va_idx = train_valid_split_indices(len(train), valid_fraction=0.1)
-X_tr, y_tr = X[tr_idx], y[tr_idx]
-X_va, y_va = X[va_idx], y[va_idx]
+n = len(train)
+folds = time_kfold_indices(n_rows=n, n_folds=3)
 
-pos = max(1, int(y_tr.sum()))
-neg = max(1, int((y_tr == 0).sum()))
-spw = float(neg) / float(pos)
+best_score = -1.0
+best_params = None
+best_rounds = None
 
-dtrain = xgb.DMatrix(X_tr, label=y_tr)
-dvalid = xgb.DMatrix(X_va, label=y_va)
+for ps in random_param_samples(seed=2024, n_samples=8):
+    fold_scores = []
+    fold_rounds = []
+    for i, va_idx in enumerate(folds):
+        tr_idx = np.arange(0, va_idx[0], dtype=int)
+        if len(tr_idx) == 0:
+            continue
+        X_tr, y_tr = X_all[tr_idx], y_all[tr_idx]
+        X_va, y_va = X_all[va_idx], y_all[va_idx]
+        pos = max(1, int(y_tr.sum()))
+        neg = max(1, int((y_tr == 0).sum()))
+        spw = float(neg) / float(pos)
+        params = ps.copy()
+        params["scale_pos_weight"] = spw
+        auc, best_iter, _ = train_eval_xgb(X_tr, y_tr, X_va, y_va, params, verbose_eval=50 if i == 0 else 0)
+        fold_scores.append(auc)
+        fold_rounds.append(best_iter)
+    if not fold_scores:
+        continue
+    mean_auc = float(np.mean(fold_scores))
+    mean_rounds = int(np.mean(fold_rounds))
+    if mean_auc > best_score:
+        best_score, best_params, best_rounds = mean_auc, ps.copy(), mean_rounds
+    print(f"Tried params -> AUC: {mean_auc:.5f}, rounds: {mean_rounds}, params(seed={ps['seed']}, depth={ps['max_depth']}, eta={ps['eta']:.4f})")
 
-params = {
-    "objective": "binary:logistic",
-    "eval_metric": "auc",
-    "tree_method": "hist",
-    "eta": 0.05,
-    "max_depth": 8,
-    "min_child_weight": 2.0,
-    "subsample": 0.85,
-    "colsample_bytree": 0.8,
-    "lambda": 2.0,
-    "gamma": 0.0,
-    "scale_pos_weight": spw,
-    "seed": 1337,
-}
+print(f"\nBest CV AUC: {best_score:.6f} with rounds ~ {best_rounds} and params: {best_params}")
 
-evals = [(dtrain, "train"), (dvalid, "valid")]
-num_boost_round = 2000
-early_stopping_rounds = 100
+# %% [markdown]
+# Train final model on all data and create submission
 
-bst = xgb.train(
-    params=params,
-    dtrain=dtrain,
-    num_boost_round=num_boost_round,
-    evals=evals,
-    early_stopping_rounds=early_stopping_rounds,
-    verbose_eval=50,
+# %%
+pos_all = max(1, int(y_all.sum()))
+neg_all = max(1, int((y_all == 0).sum()))
+best_params["scale_pos_weight"] = float(neg_all) / float(pos_all)
+
+dall = xgb.DMatrix(X_all, label=y_all)
+final_bst = xgb.train(
+    params=best_params,
+    dtrain=dall,
+    num_boost_round=int(best_rounds * 1.1) if best_rounds else 2000,
+    evals=[(dall, "train")],
+    verbose_eval=100,
 )
-
-best_ntree_limit = getattr(bst, "best_ntree_limit", None)
-va_pred = bst.predict(dvalid, ntree_limit=best_ntree_limit) if best_ntree_limit else bst.predict(dvalid)
-auc = fast_auc(y_va.astype(np.int32), va_pred.astype(np.float32))
-print(f"Validation AUC (fast_auc): {auc:.6f}")
 
 X_test = test[feature_cols].to_numpy(dtype=np.float32)
 dtest = xgb.DMatrix(X_test)
-test_pred = bst.predict(dtest, ntree_limit=best_ntree_limit) if best_ntree_limit else bst.predict(dtest)
+test_pred = final_bst.predict(dtest)
 
 sub = pd.DataFrame({"TX_ID": test["TX_ID"].astype(str).values, "TX_FRAUD": test_pred.astype(float)})
 os.makedirs("submissions", exist_ok=True)

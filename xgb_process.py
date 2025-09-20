@@ -74,6 +74,62 @@ def encode_categorical_test(series: pd.Series, mapping: Dict[str, int]) -> pd.Se
     return codes
 
 # %% [markdown]
+# Rolling, frequency, and core feature builders
+
+# %%
+def add_time_recency_features(df: pd.DataFrame, key: str, ts_col: str = "TX_TS") -> pd.DataFrame:
+    ts = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+    ts = ts.dt.tz_convert(None)
+    g = df[[key]].copy()
+    g[ts_col] = ts
+
+    g = g.sort_values([key, ts_col])
+    idx_sorted = g.index
+
+    tsl = g.groupby(key, sort=False)[ts_col].diff().dt.total_seconds().astype("float32")
+    tsl = tsl.fillna(np.float32(1e9))
+
+    g["__ones__"] = 1.0
+
+    c24 = (
+        g.set_index(ts_col)
+         .groupby(key)["__ones__"]
+         .rolling(window="24h")
+         .sum()
+         .reset_index(level=0, drop=True)
+         .astype("float32") - 1.0
+    ).clip(lower=0)
+
+    c7d = (
+        g.set_index(ts_col)
+         .groupby(key)["__ones__"]
+         .rolling(window="7d")
+         .sum()
+         .reset_index(level=0, drop=True)
+         .astype("float32") - 1.0
+    ).clip(lower=0)
+
+    out = df.copy()
+    out.loc[idx_sorted, f"time_since_last_{key}_sec"] = tsl.values
+    out.loc[idx_sorted, f"count_24h_{key}"] = c24.values
+    out.loc[idx_sorted, f"count_7d_{key}"] = c7d.values
+
+    out[f"time_since_last_{key}_sec"] = out[f"time_since_last_{key}_sec"].fillna(np.float32(1e9)).astype("float32")
+    out[f"count_24h_{key}"] = out[f"count_24h_{key}"].fillna(0).astype("float32")
+    out[f"count_7d_{key}"] = out[f"count_7d_{key}"].fillna(0).astype("float32")
+
+    return out
+
+
+def add_frequency_encoding(train_df: pd.DataFrame, test_df: pd.DataFrame, cols: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    for col in cols:
+        cnt = train_df[col].fillna("__NA__").astype(str).value_counts()
+        mapping = cnt.to_dict()
+        train_df[f"freq_{col}"] = np.log1p(train_df[col].fillna("__NA__").astype(str).map(mapping).fillna(0)).astype("float32")
+        test_df[f"freq_{col}"] = np.log1p(test_df[col].fillna("__NA__").astype(str).map(mapping).fillna(0)).astype("float32")
+    return train_df, test_df
+
+# %% [markdown]
 # Build features
 
 # %%
@@ -155,17 +211,24 @@ def build_features(
             mapping = cat_mappings.get(col, {})
             df[dst] = encode_categorical_test(df[col] if col in df.columns else pd.Series(["__NA__"] * len(df)), mapping)
 
+    for key in ["CUSTOMER_ID", "TERMINAL_ID"]:
+        tmp = add_time_recency_features(df[[key, "TX_TS"]].copy(), key=key, ts_col="TX_TS")
+        df[f"time_since_last_{key}_sec"] = tmp[f"time_since_last_{key}_sec"].astype("float32")
+        df[f"count_24h_{key}"] = tmp[f"count_24h_{key}"].astype("float32")
+        df[f"count_7d_{key}"] = tmp[f"count_7d_{key}"].astype("float32")
+
     feat_cols: List[str] = [
         "tx_hour", "tx_dow", "tx_day", "tx_month",
         "months_to_expiry",
         "amount_log1p", "goods_ratio", "cashback_ratio",
-        "x_customer_id", "y_customer_id", "x_terminal_id", "y_terminal__id", "cust_term_dist",
-        "annual_turnover_card_log1p" if "annual_turnover_card_log1p" in df.columns else "ANNUAL_TURNOVER_CARD_log1p",
-        "average_ticket_sale_amount_log1p" if "average_ticket_sale_amount_log1p" in df.columns else "AVERAGE_TICKET_SALE_AMOUNT_log1p",
+        "x_customer_id", "y_customer_id", "x_terminal_id", "y_terminal_id", "cust_term_dist",
+        "ANNUAL_TURNOVER_CARD_log1p", "AVERAGE_TICKET_SALE_AMOUNT_log1p",
         "PAYMENT_PERCENTAGE_FACE_TO_FACE", "PAYMENT_PERCENTAGE_ECOM", "PAYMENT_PERCENTAGE_MOTO",
         "DEPOSIT_REQUIRED_PERCENTAGE", "DEPOSIT_PERCENTAGE",
         "DELIVERY_SAME_DAYS_PERCENTAGE", "DELIVERY_WEEK_ONE_PERCENTAGE", "DELIVERY_WEEK_TWO_PERCENTAGE", "DELIVERY_OVER_TWO_WEEKS_PERCENTAGE",
         "merchant_tax_exempt_int", "is_recurring_int",
+        "time_since_last_CUSTOMER_ID_sec", "count_24h_CUSTOMER_ID", "count_7d_CUSTOMER_ID",
+        "time_since_last_TERMINAL_ID_sec", "count_24h_TERMINAL_ID", "count_7d_TERMINAL_ID",
     ] + [f"{c}_code" for c in cat_cols]
 
     for c in feat_cols:
@@ -179,10 +242,14 @@ def build_features(
     if "TX_ID" in df.columns:
         cols_out.append("TX_ID")
 
+    for raw_col in ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID"]:
+        if raw_col in df.columns and raw_col not in cols_out:
+            cols_out.append(raw_col)
+
     return df[cols_out].reset_index(drop=True), cat_mappings
 
 # %% [markdown]
-# Build and save features
+# Build, add frequency encodings, and save features
 
 # %%
 data = load_cleaned()
@@ -195,6 +262,13 @@ train_feats, cat_maps = build_features(
 test_feats, _ = build_features(
     test_raw, data["customers"], data["terminals"], data["merchants"], is_train=False, cat_mappings=cat_maps
 )
+
+freq_cols = ["CUSTOMER_ID", "TERMINAL_ID", "MERCHANT_ID", "CARD_DATA", "MCC_CODE", "BUSINESS_TYPE", "ACQUIRER_ID"]
+train_feats, test_feats = add_frequency_encoding(train_feats, test_feats, cols=[c for c in freq_cols if c in train_feats.columns])
+
+drop_ids = [c for c in freq_cols if c in train_feats.columns]
+train_feats = train_feats.drop(columns=drop_ids, errors="ignore")
+test_feats = test_feats.drop(columns=drop_ids, errors="ignore")
 
 out_dir = os.path.join("data", "features")
 os.makedirs(out_dir, exist_ok=True)
