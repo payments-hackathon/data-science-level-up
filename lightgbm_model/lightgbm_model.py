@@ -74,7 +74,7 @@ def load_and_preprocess_data():
     
     X = data[feature_cols].values
     y = data['TX_FRAUD'].values
-    ids = data['TRANSACTION_ID'].values if 'TRANSACTION_ID' in data.columns else np.arange(len(data))
+    ids = data['TX_ID'].values if 'TX_ID' in data.columns else np.arange(len(data))
     
     # Split into train/test
     X_train, X_test, y_train, y_test, ids_train, ids_test = train_test_split(
