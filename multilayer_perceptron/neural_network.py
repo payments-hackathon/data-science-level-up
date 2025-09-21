@@ -16,146 +16,30 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from collections import Counter
 import pickle
 
-transactions_df = pd.read_csv("transactions_train.csv", low_memory=False)
-merchants_df = pd.read_csv("merchants.csv")
-terminals_df = pd.read_csv("terminals.csv")
+from data import load_and_preprocess_data
 
-df = transactions_df.merge(terminals_df, on='TERMINAL_ID', how='left')
-df = df.merge(merchants_df, on='MERCHANT_ID', how='left')
+print("Loading and preprocessing data...")
+X_train, y_train, X_test, y_test = load_and_preprocess_data()
 
-df['TX_TS'] = pd.to_datetime(df['TX_TS'])
+print(f"Training data shape: {X_train.shape}")
+print(f"Test data shape: {X_test.shape}")
+print(f"Fraud rate: {y_train.mean():.4f}")
 
-df['hour'] = df['TX_TS'].dt.hour
-df['day_of_week'] = df['TX_TS'].dt.dayofweek
-df['is_weekend'] = (df['day_of_week'] >= 5).astype(int)
-df['is_night'] = ((df['hour'] >= 22) | (df['hour'] <= 6)).astype(int)
-df['is_business_hours'] = ((df['hour'] >= 9) & (df['hour'] <= 17)).astype(int)
-
-
-if 'x_customer_id' in df.columns and 'y_customer_id' in df.columns:
-    df['distance'] = np.sqrt(
-        (df['x_customer_id'] - df['x_terminal_id'])**2 + 
-        (df['y_customer_id'] - df['y_terminal_id'])**2
-    )
-
-    df['log_distance'] = np.log1p(df['distance'])
-
-
-df['log_amount'] = np.log1p(df['TX_AMOUNT'])
-df['amount_risk_score'] = (df['TX_AMOUNT'] > df['TX_AMOUNT'].quantile(0.95)).astype(int)
-
-
-if 'CUSTOMER_ID' in df.columns:
-    
-    df = df.sort_values(['CUSTOMER_ID', 'TX_TS'])
-    
-    customer_stats = df.groupby('CUSTOMER_ID').agg({
-        'TX_AMOUNT': ['mean', 'std', 'count'],
-        'TX_FRAUD': 'mean'  
-    }).reset_index()
-    
-    customer_stats.columns = ['CUSTOMER_ID', 'customer_avg_amount', 'customer_std_amount', 
-                             'customer_tx_count', 'customer_fraud_rate']
-    
-    df = df.merge(customer_stats, on='CUSTOMER_ID', how='left')
-    
-    df['amount_deviation'] = np.abs(df['TX_AMOUNT'] - df['customer_avg_amount']) / (df['customer_std_amount'] + 1e-6)
-
-terminal_stats = df.groupby('TERMINAL_ID').agg({
-    'TX_FRAUD': 'mean',  
-    'TX_AMOUNT': 'count' 
-}).reset_index()
-terminal_stats.columns = ['TERMINAL_ID', 'terminal_fraud_rate', 'terminal_tx_volume']
-df = df.merge(terminal_stats, on='TERMINAL_ID', how='left')
-
-columns_to_drop = []
-if 'CUSTOMER_ID' in df.columns:
-    columns_to_drop.append('CUSTOMER_ID')
-if 'MERCHANT_ID' in df.columns:
-    columns_to_drop.append('MERCHANT_ID')
-if 'TERMINAL_ID' in df.columns:
-    columns_to_drop.append('TERMINAL_ID')
-if 'TX_TS' in df.columns:
-    columns_to_drop.append('TX_TS')
-
-if columns_to_drop:
-    df = df.drop(columns_to_drop, axis=1)
-
-categorical_columns = [
-    'CARD_BRAND', 
-    'TRANSACTION_TYPE', 
-    'TRANSACTION_STATUS',
-    'CARD_COUNTRY_CODE',
-    'IS_RECURRING_TRANSACTION',
-    'TRANSACTION_CURRENCY'
-]
-
-merchant_categorical_features = ['BUSINESS_TYPE', 'OUTLET_TYPE']
-for col in merchant_categorical_features:
-    if col in df.columns:
-        categorical_columns.append(col)
-
-label_encoders = {}
-for col in categorical_columns:
-    if col in df.columns:
-        le = LabelEncoder()
-        df[col] = df[col].fillna('UNKNOWN')
-        df[col] = le.fit_transform(df[col].astype(str))
-        label_encoders[col] = le
-
-base_numeric_columns = [
-    'TX_AMOUNT',
-    'TRANSACTION_GOODS_AND_SERVICES_AMOUNT',
-    'TRANSACTION_CASHBACK_AMOUNT',
-    'hour',
-    'day_of_week',
-    'is_weekend',
-    'is_night',
-    'is_business_hours',
-    'log_amount',
-    'amount_risk_score',
-    'x_terminal_id',
-    'y_terminal__id'  
-]
-
-enhanced_features = [
-    'distance', 'log_distance', 'customer_avg_amount', 'customer_std_amount',
-    'customer_tx_count', 'customer_fraud_rate', 'amount_deviation',
-    'terminal_fraud_rate', 'terminal_tx_volume'
-]
-
-merchant_numeric_features = [
-    'ANNUAL_TURNOVER', 'ANNUAL_TURNOVER_CARD', 'AVERAGE_TICKET_SALE_AMOUNT',
-    'DEPOSIT_PERCENTAGE', 'DELIVERY_SAME_DAYS_PERCENTAGE'
-]
-
-numeric_columns = []
-for col in base_numeric_columns + enhanced_features + merchant_numeric_features:
-    if col in df.columns:
-        numeric_columns.append(col)
-
-for col in numeric_columns:
-    if col in df.columns:
-        df[col] = df[col].fillna(df[col].median())
-
-all_features = numeric_columns + [col for col in categorical_columns if col in df.columns]
-X = df[all_features]
-y = df['TX_FRAUD']
+# Data is already preprocessed by data.py
+X = X_train
+y = y_train
 
 print(f"Feature set size: {X.shape[1]} features")
 print(f"Class distribution: {Counter(y)}")
 print(f"Fraud rate: {y.mean():.4f}")
 
-scaler = RobustScaler()
-X_scaled = scaler.fit_transform(X)
+# Use the test split from data.py
+X_val = X_test
+y_val = y_test
 
-X_train, X_val, y_train, y_val = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42, stratify=y
-)
-
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32).unsqueeze(1)
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
+X_train_tensor = torch.tensor(X.values, dtype=torch.float32)
+y_train_tensor = torch.tensor(y.values, dtype=torch.float32).unsqueeze(1)
+X_val_tensor = torch.tensor(X_val.values, dtype=torch.float32)
 y_val_tensor = torch.tensor(y_val.values, dtype=torch.float32).unsqueeze(1)
 
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
@@ -197,7 +81,7 @@ class EnhancedFraudNet(nn.Module):
         x = self.fc5(x)  
         return x
 
-input_dim = X_train.shape[1]
+input_dim = X.shape[1]
 model = EnhancedFraudNet(input_dim, dropout_rate=0.4)
 
 try:
@@ -206,8 +90,8 @@ try:
 except FileNotFoundError:
     print("No saved enhanced model found. Starting fresh.")
 
-num_pos = y_train.sum()
-num_neg = len(y_train) - num_pos
+num_pos = y.sum()
+num_neg = len(y) - num_pos
 pos_weight = torch.tensor([num_neg / num_pos * 0.7], dtype=torch.float32)  # Slightly reduce to prevent over-weighting
 
 print(f"Positive class weight: {pos_weight.item():.2f}")
@@ -216,7 +100,7 @@ criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
 
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, verbose=True)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2)
 
 def find_optimal_threshold(y_true, y_pred_proba):
     """Find optimal threshold that maximizes F1 score"""
@@ -292,13 +176,11 @@ for epoch in range(EPOCHS):
         torch.save(model.state_dict(), "enhanced_fraud_model.pth")
         with open("model_metadata.pkl", "wb") as f:
             pickle.dump({
-                'feature_names': all_features,
-                'numeric_features': numeric_columns,
-                'label_encoders': label_encoders,
-                'scaler_feature_names': getattr(scaler, 'feature_names_in_', list(X.columns))
+                'feature_names': list(X.columns),
+                'numeric_features': list(X.columns),
+                'label_encoders': {},
+                'scaler_feature_names': list(X.columns)
             }, f)
-            with open("scaler.pkl", "wb") as fsc:
-                pickle.dump(scaler, fsc)
 
         print(f"  New best F1: {best_f1:.4f} - Model saved!")
     else:
@@ -335,7 +217,7 @@ print(classification_report(y_val, val_preds, target_names=['Non-Fraud', 'Fraud'
 with torch.no_grad():
     first_layer_weights = model.fc1.weight.abs().mean(dim=0).cpu().numpy()
     feature_importance = pd.DataFrame({
-        'feature': all_features,
+        'feature': X.columns,
         'importance': first_layer_weights
     }).sort_values('importance', ascending=False)
     

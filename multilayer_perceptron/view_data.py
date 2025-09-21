@@ -1,8 +1,11 @@
+# flake8: noqa
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+from matplotlib.patches import Rectangle
 pd.set_option('display.max_columns', None)
 
 df = pd.read_csv('test_predictions.csv')
@@ -20,7 +23,7 @@ os.makedirs(out_dir, exist_ok=True)
 
 
 plt.figure(figsize=(8,4))
-sns.histplot(df['Fraud_Probability'], bins=50, kde=False)
+sns.histplot(data=df, x='Fraud_Probability', bins=50, kde=False)
 plt.title('Predicted Fraud Probability Distribution')
 plt.xlabel('Fraud Probability')
 plt.ylabel('Count')
@@ -38,10 +41,12 @@ plt.ylabel('Count')
 plt.tight_layout()
 counts_path = os.path.join(out_dir, 'fraud_prediction_counts.png')
 
+from matplotlib.patches import Rectangle
 for p in ax.patches:
-	height = int(p.get_height())
-	ax.annotate(f'{height}', (p.get_x() + p.get_width() / 2., height),
-				ha='center', va='bottom', fontsize=10, color='black')
+	if isinstance(p, Rectangle):
+		height = int(p.get_height())
+		ax.annotate(f'{height}', (p.get_x() + p.get_width() / 2., height),
+					ha='center', va='bottom', fontsize=10, color='black')
 
 plt.savefig(counts_path)
 plt.close()
