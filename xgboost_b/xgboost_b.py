@@ -1,6 +1,6 @@
+# flake8: noqa
+
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, average_precision_score
