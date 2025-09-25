@@ -230,15 +230,16 @@ plt.ylabel('Number of Terminals (log scale)')
 plt.yscale('log')
 plt.show()
 
-# Print all terminals with fraud, ordered by fraud rate
+# Print all terminals with fraud, ordered by fraud contribution
 all_terminal_fraud = train_tx.groupby('TERMINAL_ID')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
 all_terminal_fraud = all_terminal_fraud[all_terminal_fraud['sum'] > 0]  # Exclude 0 fraud
 all_terminal_fraud['fraud_rate'] = all_terminal_fraud['mean'] * 100
-all_terminal_fraud_sorted = all_terminal_fraud.sort_values('fraud_rate', ascending=False)
+all_terminal_fraud['fraud_contribution'] = (all_terminal_fraud['sum'] / fraud_count) * 100
+all_terminal_fraud_sorted = all_terminal_fraud.sort_values('fraud_contribution', ascending=False)
 
-print("\nTerminals with Fraud (ordered by fraud rate):")
+print("\nTerminals with Fraud (ordered by fraud contribution):")
 for terminal_id, row in all_terminal_fraud_sorted.iterrows():
-    print(f"{terminal_id}: {row['fraud_rate']:.2f}%")
+    print(f"{terminal_id}: {row['fraud_rate']:.2f}% fraud rate, {row['fraud_contribution']:.2f}% of total fraud")
 
 # %% Customer Risk Profiles
 customer_fraud = train_tx.groupby('CUSTOMER_ID')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
@@ -330,20 +331,28 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 # %% Amount Threshold Analysis
+from scipy import stats
 train_tx['amount_bucket'] = pd.cut(train_tx['TX_AMOUNT'], 
-                                  bins=[0, 10, 50, 100, 500, 1000, float('inf')],
-                                  labels=['$0-10', '$10-50', '$50-100', '$100-500', '$500-1000', '$1000+'])
+                                  bins=range(0, 810, 10),
+                                  labels=[f'${i}-{i+9}' for i in range(0, 800, 10)])
 
-bucket_fraud = train_tx.groupby('amount_bucket')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
-bucket_fraud['fraud_rate'] = bucket_fraud['mean'] * 100
+bucket_fraud = train_tx.groupby('amount_bucket')['TX_FRAUD'].agg(['count', 'sum'])
+bucket_fraud['fraud_contribution'] = (bucket_fraud['sum'] / fraud_count) * 100
 
-plt.figure(figsize=(10, 6))
-bucket_fraud['fraud_rate'].plot(kind='bar', color=get_catppuccin_colors(len(bucket_fraud)))
-plt.ylim(bucket_fraud['fraud_rate'].min() * 0.95, bucket_fraud['fraud_rate'].max() * 1.05)
-plt.title('Fraud Rate by Transaction Amount Buckets')
+# Fit truncated normal distribution
+fraud_amounts = train_tx[train_tx['TX_FRAUD'] == 1]['TX_AMOUNT']
+a_fit, b_fit, mu, sigma = stats.truncnorm.fit(fraud_amounts)
+x = np.linspace(0, 800, 80)
+truncnorm_fit = stats.truncnorm.pdf(x, a_fit, b_fit, mu, sigma) * 10 * 100
+
+plt.figure(figsize=(15, 6))
+bucket_fraud['fraud_contribution'].plot(kind='bar', color=get_catppuccin_colors(1)[0], alpha=0.7)
+plt.plot(x/10, truncnorm_fit, 'r-', linewidth=2, label=f'Truncated Normal fit (μ={mu:.1f}, σ={sigma:.1f})')
+plt.title('Fraud Transaction Distribution by Amount ($10 buckets)')
 plt.xlabel('Amount Bucket')
-plt.ylabel('Fraud Rate (%)')
-plt.xticks(rotation=45)
+plt.ylabel('% of All Fraud Transactions')
+plt.legend()
+plt.xticks(range(0, len(bucket_fraud), 10), rotation=45)
 plt.show()
 
 # %% Country Code Risk Analysis

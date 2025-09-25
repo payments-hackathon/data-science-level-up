@@ -9,3 +9,5 @@ plots/
 **/*.pkl
 **/*.pth
 **/*.csv
+**/*.txt
+**/*.png
