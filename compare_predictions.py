@@ -1,7 +1,13 @@
+# flake8: noqa
+
 import pandas as pd
 import numpy as np
 from sklearn.metrics import cohen_kappa_score
 import argparse
+from colorama import Fore, Style, init
+
+# Initialize colorama
+init(autoreset=True)
 
 def load_and_preprocess_file(file_path, threshold=0.5):
     df = pd.read_csv(file_path)
@@ -66,51 +72,80 @@ def calculate_agreement_stats(df1, df2, threshold=0.5):
         'threshold_used': threshold
     }
 
+def get_color_for_percentage(value, thresholds=(70, 85, 95)):
+    if value >= thresholds[2]: return Fore.GREEN
+    elif value >= thresholds[1]: return Fore.YELLOW
+    elif value >= thresholds[0]: return Fore.CYAN
+    else: return Fore.RED
+
+def get_color_for_kappa(value):
+    if value >= 0.81: return Fore.GREEN
+    elif value >= 0.61: return Fore.YELLOW
+    elif value >= 0.41: return Fore.CYAN
+    else: return Fore.RED
+
 def print_comprehensive_report(stats, file1_path, file2_path):
-    print("=" * 80)
-    print("FRAUD DETECTION PREDICTION AGREEMENT ANALYSIS")
-    print("=" * 80)
-    print(f"File 1: {file1_path}")
-    print(f"File 2: {file2_path}")
-    print(f"Common transactions analyzed: {stats['common_transactions']:,}")
-    print(f"Classification threshold: {stats['threshold_used']}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}{'=' * 80}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}FRAUD DETECTION PREDICTION AGREEMENT ANALYSIS")
+    print(f"{Fore.CYAN}{Style.BRIGHT}{'=' * 80}{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}File 1:{Style.RESET_ALL} {file1_path}")
+    print(f"{Fore.WHITE}File 2:{Style.RESET_ALL} {file2_path}")
+    print(f"{Fore.WHITE}Common transactions analyzed:{Style.RESET_ALL} {stats['common_transactions']:,}")
+    print(f"{Fore.WHITE}Classification threshold:{Style.RESET_ALL} {stats['threshold_used']}")
     print()
     
-    print("BINARY CLASSIFICATION AGREEMENT:")
-    print("-" * 40)
-    print(f"Binary Agreement: {stats['binary_agreement_percentage']:.2f}%")
-    print(f"Cohen's Kappa: {stats['cohen_kappa']:.4f}")
+    # Binary Classification Agreement
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}BINARY CLASSIFICATION AGREEMENT:{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{'-' * 50}{Style.RESET_ALL}")
+    
+    agreement_color = get_color_for_percentage(stats['binary_agreement_percentage'])
+    kappa_color = get_color_for_kappa(stats['cohen_kappa'])
+    
+    print(f"{'Binary Agreement:':<25} {agreement_color}{stats['binary_agreement_percentage']:>6.2f}%{Style.RESET_ALL}")
+    print(f"{'Cohen\'s Kappa:':<25} {kappa_color}{stats['cohen_kappa']:>6.4f}{Style.RESET_ALL}")
     print()
     
+    # Confusion Matrix
     cm = stats['confusion_matrix']
     total = stats['common_transactions']
-    print("CONFUSION MATRIX (File1 vs File2):")
-    print("-" * 40)
-    print(f"True Negatives (Both Non-Fraud):  {cm['true_negatives']:>6} ({cm['true_negatives']/total*100:5.1f}%)")
-    print(f"False Positives (File1: Non-Fraud, File2: Fraud): {cm['false_positives']:>6} ({cm['false_positives']/total*100:5.1f}%)")
-    print(f"False Negatives (File1: Fraud, File2: Non-Fraud): {cm['false_negatives']:>6} ({cm['false_negatives']/total*100:5.1f}%)")
-    print(f"True Positives (Both Fraud):       {cm['true_positives']:>6} ({cm['true_positives']/total*100:5.1f}%)")
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}CONFUSION MATRIX (File1 vs File2):{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{'-' * 50}{Style.RESET_ALL}")
+    
+    print(f"{Fore.GREEN}{'True Negatives:':<25} {cm['true_negatives']:>8,} ({cm['true_negatives']/total*100:>5.1f}%){Style.RESET_ALL}")
+    print(f"{Fore.RED}{'False Positives:':<25} {cm['false_positives']:>8,} ({cm['false_positives']/total*100:>5.1f}%){Style.RESET_ALL}")
+    print(f"{Fore.RED}{'False Negatives:':<25} {cm['false_negatives']:>8,} ({cm['false_negatives']/total*100:>5.1f}%){Style.RESET_ALL}")
+    print(f"{Fore.GREEN}{'True Positives:':<25} {cm['true_positives']:>8,} ({cm['true_positives']/total*100:>5.1f}%){Style.RESET_ALL}")
     print()
     
-    print("PROBABILITY-BASED METRICS:")
-    print("-" * 40)
-    print(f"Exact Probability Agreement: {stats['exact_agreement_percentage']:.2f}%")
-    print(f"Correlation Coefficient: {stats['correlation']:.4f}")
-    print(f"Mean Absolute Error: {stats['mean_absolute_error']:.6f}")
-    print(f"Root Mean Squared Error: {stats['root_mean_squared_error']:.6f}")
+    # Probability-based Metrics
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}PROBABILITY-BASED METRICS:{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{'-' * 50}{Style.RESET_ALL}")
+    
+    exact_color = get_color_for_percentage(stats['exact_agreement_percentage'])
+    corr_color = Fore.GREEN if abs(stats['correlation']) >= 0.7 else Fore.YELLOW if abs(stats['correlation']) >= 0.5 else Fore.RED
+    
+    print(f"{'Exact Agreement:':<25} {exact_color}{stats['exact_agreement_percentage']:>6.2f}%{Style.RESET_ALL}")
+    print(f"{'Correlation:':<25} {corr_color}{stats['correlation']:>6.4f}{Style.RESET_ALL}")
+    print(f"{'Mean Absolute Error:':<25} {stats['mean_absolute_error']:>8.6f}")
+    print(f"{'Root Mean Squared Error:':<25} {stats['root_mean_squared_error']:>8.6f}")
     print()
     
+    # Probability Distribution
     prob_stats = stats['probability_stats']
-    print("PROBABILITY DISTRIBUTION COMPARISON:")
-    print("-" * 40)
-    print(f"Mean Fraud Probability - File 1: {prob_stats['file1_mean']:.4f}")
-    print(f"Mean Fraud Probability - File 2: {prob_stats['file2_mean']:.4f}")
-    print(f"Std Dev Fraud Probability - File 1: {prob_stats['file1_std']:.4f}")
-    print(f"Std Dev Fraud Probability - File 2: {prob_stats['file2_std']:.4f}")
-    print(f"Mean Probability Difference (File1 - File2): {prob_stats['probability_difference_mean']:.6f}")
-    print(f"Std Dev of Probability Differences: {prob_stats['probability_difference_std']:.6f}")
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}PROBABILITY DISTRIBUTION:{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{'-' * 50}{Style.RESET_ALL}")
+    
+    print(f"{'File 1 Mean:':<25} {prob_stats['file1_mean']:>8.4f}")
+    print(f"{'File 2 Mean:':<25} {prob_stats['file2_mean']:>8.4f}")
+    print(f"{'File 1 Std Dev:':<25} {prob_stats['file1_std']:>8.4f}")
+    print(f"{'File 2 Std Dev:':<25} {prob_stats['file2_std']:>8.4f}")
+    
+    diff_color = Fore.GREEN if abs(prob_stats['probability_difference_mean']) < 0.01 else Fore.YELLOW if abs(prob_stats['probability_difference_mean']) < 0.05 else Fore.RED
+    print(f"{'Mean Difference:':<25} {diff_color}{prob_stats['probability_difference_mean']:>8.6f}{Style.RESET_ALL}")
+    print(f"{'Std Dev Difference:':<25} {prob_stats['probability_difference_std']:>8.6f}")
     print()
     
+    # Agreement Interpretation
     agreement_level = "Excellent" if stats['binary_agreement_percentage'] >= 95 else \
                       "Good" if stats['binary_agreement_percentage'] >= 85 else \
                       "Moderate" if stats['binary_agreement_percentage'] >= 70 else \
@@ -122,11 +157,18 @@ def print_comprehensive_report(stats, file1_path, file2_path):
                   "Fair" if stats['cohen_kappa'] >= 0.21 else \
                   "Slight"
     
-    print("AGREEMENT INTERPRETATION:")
-    print("-" * 40)
-    print(f"Binary Agreement Level: {agreement_level}")
-    print(f"Cohen's Kappa Level: {kappa_level}")
-    print(f"Correlation Strength: {'Strong' if abs(stats['correlation']) >= 0.7 else 'Moderate' if abs(stats['correlation']) >= 0.5 else 'Weak'}")
+    corr_strength = "Strong" if abs(stats['correlation']) >= 0.7 else "Moderate" if abs(stats['correlation']) >= 0.5 else "Weak"
+    
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}AGREEMENT SUMMARY:{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{'-' * 50}{Style.RESET_ALL}")
+    
+    level_color = get_color_for_percentage(stats['binary_agreement_percentage'])
+    kappa_interp_color = get_color_for_kappa(stats['cohen_kappa'])
+    corr_interp_color = Fore.GREEN if corr_strength == "Strong" else Fore.YELLOW if corr_strength == "Moderate" else Fore.RED
+    
+    print(f"{'Agreement Level:':<25} {level_color}{agreement_level}{Style.RESET_ALL}")
+    print(f"{'Kappa Interpretation:':<25} {kappa_interp_color}{kappa_level}{Style.RESET_ALL}")
+    print(f"{'Correlation Strength:':<25} {corr_interp_color}{corr_strength}{Style.RESET_ALL}")
 
 def main():
     parser = argparse.ArgumentParser(description='Compare two fraud detection prediction files')

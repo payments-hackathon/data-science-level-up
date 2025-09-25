@@ -1,5 +1,7 @@
 # flake8: noqa
 
+
+# %% Imports
 import pandas as pd
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
@@ -8,10 +10,11 @@ from sklearn.preprocessing import LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
+# %% Load and preprocess data
 def load_data():
-    transactions = pd.read_csv('data/Payments Fraud DataSet/transactions_train.csv')
-    merchants = pd.read_csv('data/Payments Fraud DataSet/merchants.csv')
-    customers = pd.read_csv('data/Payments Fraud DataSet/customers.csv')
+    transactions = pd.read_csv('../data/Payments Fraud DataSet/transactions_train.csv')
+    merchants = pd.read_csv('../data/Payments Fraud DataSet/merchants.csv')
+    customers = pd.read_csv('../data/Payments Fraud DataSet/customers.csv')
     return transactions, merchants, customers
 
 def create_features(transactions, merchants, customers):
@@ -44,7 +47,7 @@ def create_features(transactions, merchants, customers):
 
     return transactions, label_encoders
 
-# Prepare data for modeling
+# %% Prepare data for modeling
 def prepare_data(transactions):
     feature_cols = ['TX_AMOUNT', 'hour', 'day_of_week', 'day_of_month', 'month', 'time_since_last_tx', 'amount_to_avg_ratio', 'x_customer_id', 'y_customer_id', 'MCC_CODE', 'ANNUAL_TURNOVER', 'AVERAGE_TICKET_SALE_AMOUNT', 'CARD_BRAND', 'TRANSACTION_TYPE', 'TRANSACTION_STATUS', 'CARDHOLDER_AUTH_METHOD', 'BUSINESS_TYPE', 'OUTLET_TYPE', 'card_expiry_year', 'card_expiry_month']
     available_cols = [col for col in feature_cols if col in transactions.columns]
@@ -52,7 +55,7 @@ def prepare_data(transactions):
     y = transactions['TX_FRAUD']
     return X, y
 
-# Train and evaluate model
+# %% Train and evaluate model
 def train_and_evaluate(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     fraud_ratio = y_train.mean()
@@ -67,11 +70,11 @@ def train_and_evaluate(X, y):
     cm = confusion_matrix(y_test, y_pred)
     return model
 
-# Predict on test data
+# %% Predict on test data
 def predict_on_test(model, label_encoders):
-    test_transactions = pd.read_csv('data/Payments Fraud DataSet/transactions_test.csv')
-    merchants = pd.read_csv('data/Payments Fraud DataSet/merchants.csv')
-    customers = pd.read_csv('data/Payments Fraud DataSet/customers.csv')
+    test_transactions = pd.read_csv('../data/Payments Fraud DataSet/transactions_test.csv')
+    merchants = pd.read_csv('../data/Payments Fraud DataSet/merchants.csv')
+    customers = pd.read_csv('../data/Payments Fraud DataSet/customers.csv')
 
     test_transactions['TX_TS'] = pd.to_datetime(test_transactions['TX_TS'])
     test_transactions['hour'] = test_transactions['TX_TS'].dt.hour
@@ -109,14 +112,10 @@ def predict_on_test(model, label_encoders):
     output.to_csv('predictions.csv', index=False)
     return output
 
-# Main execution
-def main():
-    transactions, merchants, customers = load_data()
-    transactions_with_features, label_encoders = create_features(transactions, merchants, customers)
-    X, y = prepare_data(transactions_with_features)
-    model = train_and_evaluate(X, y)
-    predictions = predict_on_test(model, label_encoders)
-    # process completed
-
-if __name__ == "__main__":
-    main()
+# %% Main execution
+transactions, merchants, customers = load_data()
+transactions_with_features, label_encoders = create_features(transactions, merchants, customers)
+X, y = prepare_data(transactions_with_features)
+model = train_and_evaluate(X, y)
+predictions = predict_on_test(model, label_encoders)
+# process completed

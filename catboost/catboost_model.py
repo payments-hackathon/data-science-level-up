@@ -1,3 +1,5 @@
+# flake8: noqa
+
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier, Pool
@@ -5,13 +7,15 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 import warnings
 warnings.filterwarnings("ignore")
 
+# %%
 def load_data():
-    transactions = pd.read_csv("data/Payments Fraud DataSet/transactions_train.csv")
-    merchants = pd.read_csv("data/Payments Fraud DataSet/merchants.csv")
-    customers = pd.read_csv("data/Payments Fraud DataSet/customers.csv")
-    terminals = pd.read_csv("data/Payments Fraud DataSet/terminals.csv")
+    transactions = pd.read_csv("../data/Payments Fraud DataSet/transactions_train.csv")
+    merchants = pd.read_csv("../data/Payments Fraud DataSet/merchants.csv")
+    customers = pd.read_csv("../data/Payments Fraud DataSet/customers.csv")
+    terminals = pd.read_csv("../data/Payments Fraud DataSet/terminals.csv")
     return transactions, merchants, customers, terminals
 
+# %%
 def detect_fraudulent_terminals(train_tx, threshold=1.0, min_count=5):
     terminal_stats = train_tx.groupby('TERMINAL_ID')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
     terminal_stats = terminal_stats[terminal_stats['count'] >= min_count]
@@ -19,6 +23,7 @@ def detect_fraudulent_terminals(train_tx, threshold=1.0, min_count=5):
     print(f"Found {len(fraudulent_terminals)} terminals with >= {int(threshold*100)}% fraud rate (min {min_count} txns).")
     return fraudulent_terminals
 
+# %%
 def create_features_v6(transactions, merchants, customers, terminals, fraudulent_terminals, is_test=False):
     transactions["TX_TS"] = pd.to_datetime(transactions["TX_TS"])
     transactions = transactions.sort_values(["CUSTOMER_ID", "TX_TS"])
@@ -133,6 +138,7 @@ def create_features_v6(transactions, merchants, customers, terminals, fraudulent
         subset="TX_ID"
     )
 
+# %%
 def get_categorical_features(df):
     cat = [
         "CUSTOMER_ID", "hour", "dayofweek", "TRANSACTION_CURRENCY", 
@@ -147,6 +153,7 @@ def get_categorical_features(df):
         df[c] = df[c].astype(str)
     return available
 
+# %%
 def prepare_data(df, is_test=False):
     y = df["TX_FRAUD"] if not is_test else None
     
@@ -160,6 +167,7 @@ def prepare_data(df, is_test=False):
     cat_features = get_categorical_features(X)
     return X, y, cat_features
 
+# %%
 def train_catboost_v6(X, y, df_time, cat_features):
     df = X.copy()
     df["TX_FRAUD"] = y
@@ -204,6 +212,7 @@ def train_catboost_v6(X, y, df_time, cat_features):
     model.fit(train_pool, eval_set=val_pool, use_best_model=True, plot=False)
     return model, X_val, y_val
 
+# %%
 def evaluate_model(model, X_val, y_val, cat_features):
     val_pool = Pool(X_val, cat_features=cat_features)
     y_pred = model.predict_proba(val_pool)[:, 1]
@@ -216,11 +225,13 @@ def evaluate_model(model, X_val, y_val, cat_features):
         "Best_Threshold": thr[best_idx],
     }
 
+# %%
 def feature_importance_df(model, feature_names):
     return pd.DataFrame(
         {"feature": feature_names, "importance": model.get_feature_importance()}
     ).sort_values("importance", ascending=False)
 
+# %%
 def predict_on_test(model, train_tx_for_fraud_terminals):
     print("\n--- Predicting on Test Set (V6) ---")
     
@@ -246,34 +257,31 @@ def predict_on_test(model, train_tx_for_fraud_terminals):
     print(f"Mean fraud probability: {proba.mean():.6f}")
     return out
 
-def main():
-    print("=== CATBOOST FRAUD V6: V5 + Enhanced Spatial/Outlier Features ===")
-    
-    transactions, merchants, customers, terminals = load_data()
-    
-    fraudulent_terminals = detect_fraudulent_terminals(transactions) 
+# %%
+print("=== CATBOOST FRAUD V6: V5 + Enhanced Spatial/Outlier Features ===")
 
-    train_merged = (
-        transactions.merge(merchants, on="MERCHANT_ID", how="left")
-        .merge(customers, on="CUSTOMER_ID", how="left")
-    )
+transactions, merchants, customers, terminals = load_data()
 
-    feat_df = create_features_v6(train_merged, merchants, customers, terminals, fraudulent_terminals, is_test=False)
-    
-    X, y, cat_features = prepare_data(feat_df, is_test=False)
-    
-    model, X_val, y_val = train_catboost_v6(X, y, feat_df["TX_TS"], cat_features)
+fraudulent_terminals = detect_fraudulent_terminals(transactions) 
 
-    metrics = evaluate_model(model, X_val, y_val, cat_features)
-    print("\nValidation Metrics:")
-    for k, v in metrics.items():
-        print(f"{k}: {v:.6f}" if "Threshold" not in k else f"{k}: {v:.4f}")
+train_merged = (
+    transactions.merge(merchants, on="MERCHANT_ID", how="left")
+    .merge(customers, on="CUSTOMER_ID", how="left")
+)
 
-    fi = feature_importance_df(model, X.columns)
-    fi.to_csv("catboost_feature_importance_v6.csv", index=False)
-    print("Feature importance saved -> catboost_feature_importance_v6.csv")
+feat_df = create_features_v6(train_merged, merchants, customers, terminals, fraudulent_terminals, is_test=False)
 
-    predict_on_test(model, transactions)
+X, y, cat_features = prepare_data(feat_df, is_test=False)
 
-if __name__ == "__main__":
-    main()
+model, X_val, y_val = train_catboost_v6(X, y, feat_df["TX_TS"], cat_features)
+
+metrics = evaluate_model(model, X_val, y_val, cat_features)
+print("\nValidation Metrics:")
+for k, v in metrics.items():
+    print(f"{k}: {v:.6f}" if "Threshold" not in k else f"{k}: {v:.4f}")
+
+fi = feature_importance_df(model, X.columns)
+fi.to_csv("catboost_feature_importance_v6.csv", index=False)
+print("Feature importance saved -> catboost_feature_importance_v6.csv")
+
+predict_on_test(model, transactions)
