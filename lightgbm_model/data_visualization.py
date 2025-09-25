@@ -29,6 +29,7 @@ plt.title("Distribution of Predicted Fraud Probability")
 plt.xlabel("Fraud Probability")
 plt.ylabel("Transactions")
 plt.tight_layout()
+plt.show()
 plt.savefig(os.path.join(out_dir, "fraud_probability_distribution.png"))
 plt.close()
 
@@ -51,6 +52,7 @@ for p in ax.patches:
     ax.annotate(f"{height}", (p.get_x() + p.get_width() / 2., height),
                 ha="center", va="bottom", fontsize=9)
 plt.tight_layout()
+plt.show()
 plt.savefig(os.path.join(out_dir, "fraud_prediction_counts.png"))
 plt.close()
 
@@ -63,6 +65,7 @@ if "TX_AMOUNT" in df.columns:
     plt.xlabel("Transaction Amount (log scale)")
     plt.ylabel("Fraud Probability")
     plt.tight_layout()
+    plt.show()
     plt.savefig(os.path.join(out_dir, "amount_vs_probability.png"))
     plt.close()
 
@@ -77,6 +80,7 @@ if "TX_TS" in df.columns:
     plt.xlabel("Hour of Day")
     plt.ylabel("Avg Fraud Probability")
     plt.tight_layout()
+    plt.show()
     plt.savefig(os.path.join(out_dir, "hourly_fraud_profile.png"))
     plt.close()
 
@@ -89,6 +93,7 @@ if "TRANSACTION_TYPE" in df.columns:
     plt.xticks(rotation=45)
     plt.ylabel("Avg Fraud Probability")
     plt.tight_layout()
+    plt.show()
     plt.savefig(os.path.join(out_dir, "fraud_by_transaction_type.png"))
     plt.close()
 
@@ -101,6 +106,7 @@ if "CARD_BRAND" in df.columns:
     plt.ylabel("Avg Fraud Probability")
     plt.xticks(rotation=30)
     plt.tight_layout()
+    plt.show()
     plt.savefig(os.path.join(out_dir, "fraud_by_card_brand.png"))
     plt.close()
 
@@ -114,7 +120,9 @@ summary_text = (
 plt.figure(figsize=(4, 2))
 plt.axis("off")
 plt.text(0.01, 0.5, summary_text, fontsize=12, va="center")
+plt.show()
 plt.savefig(os.path.join(out_dir, "prediction_summary.png"), bbox_inches="tight")
 plt.close()
 
 print("All visuals saved in ./plots")
+# %%
