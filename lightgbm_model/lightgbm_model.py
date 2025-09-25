@@ -138,13 +138,13 @@ def train_lightgbm(X_train, y_train, X_test, y_test, ids_test):
     return model
 
 # %% Main
-if __name__ == "__main__":
-    print("Loading and preprocessing data...")
-    X_train, y_train, X_test, y_test, ids_test = load_and_preprocess_data()
 
-    print(f"Training data shape: {X_train.shape}")
-    print(f"Test data shape: {X_test.shape}")
-    print(f"Fraud rate: {y_train.mean():.4f}")
+print("Loading and preprocessing data...")
+X_train, y_train, X_test, y_test, ids_test = load_and_preprocess_data()
 
-    print("Training LightGBM model...")
-    lgb_model = train_lightgbm(X_train, y_train, X_test, y_test, ids_test)
+print(f"Training data shape: {X_train.shape}")
+print(f"Test data shape: {X_test.shape}")
+print(f"Fraud rate: {y_train.mean():.4f}")
+
+print("Training LightGBM model...")
+lgb_model = train_lightgbm(X_train, y_train, X_test, y_test, ids_test)

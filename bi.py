@@ -95,23 +95,42 @@ colors = get_catppuccin_colors(2)
 plt.hist(legit_amounts, bins=50, alpha=0.7, label='Legitimate', density=True, color=colors[0])
 plt.hist(fraud_amounts, bins=50, alpha=0.7, label='Fraudulent', density=True, color=colors[1])
 plt.xlabel('Transaction Amount ($)')
-plt.ylabel('Density')
+plt.ylabel('Density (log scale)')
+plt.yscale('log')
 plt.title('Transaction Amount Distribution')
 plt.legend()
 plt.xlim(0, 1000)
 plt.show()
 
-# %% Geographic Distribution - Customer Locations
+# %% Customer Fraud Heat Map
+from matplotlib.colors import LogNorm
+customer_fraud_counts = train_tx.groupby('CUSTOMER_ID')['TX_FRAUD'].sum().reset_index()
+customer_heat_data = customers.merge(customer_fraud_counts, on='CUSTOMER_ID', how='left')
+customer_heat_data['TX_FRAUD'] = customer_heat_data['TX_FRAUD'].fillna(0)
+customer_heat_data['TX_FRAUD'] = customer_heat_data['TX_FRAUD'] + 1  # Add 1 for log scale
+
 plt.figure(figsize=(10, 8))
-colors = get_catppuccin_colors(2)
-plt.scatter(customers['x_customer_id'], customers['y_customer_id'], 
-           alpha=0.5, s=1, c=colors[0], label='Customers')
-plt.scatter(terminals['x_terminal_id'], terminals['y_terminal__id'], 
-           alpha=0.8, s=20, c=colors[1], marker='s', label='Terminals')
+scatter = plt.scatter(customer_heat_data['x_customer_id'], customer_heat_data['y_customer_id'], 
+                     c=customer_heat_data['TX_FRAUD'], cmap='plasma', s=2, alpha=0.7, norm=LogNorm())
+plt.colorbar(scatter, label='Number of Fraud Transactions (log scale)')
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
-plt.title('Geographic Distribution: Customers and Terminals')
-plt.legend()
+plt.title('Customer Locations: Heat Map by Fraud Transaction Count (Log Scale)')
+plt.show()
+
+# %% Terminal Fraud Heat Map
+terminal_fraud_counts = train_tx.groupby('TERMINAL_ID')['TX_FRAUD'].sum().reset_index()
+terminal_heat_data = terminals.merge(terminal_fraud_counts, on='TERMINAL_ID', how='left')
+terminal_heat_data['TX_FRAUD'] = terminal_heat_data['TX_FRAUD'].fillna(0)
+terminal_heat_data['TX_FRAUD'] = terminal_heat_data['TX_FRAUD'] + 1  # Add 1 for log scale
+
+plt.figure(figsize=(10, 8))
+scatter = plt.scatter(terminal_heat_data['x_terminal_id'], terminal_heat_data['y_terminal__id'], 
+                     c=terminal_heat_data['TX_FRAUD'], cmap='plasma', s=20, alpha=0.8, marker='s', norm=LogNorm())
+plt.colorbar(scatter, label='Number of Fraud Transactions (log scale)')
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+plt.title('Terminal Locations: Heat Map by Fraud Transaction Count (Log Scale)')
 plt.show()
 
 # %% Customer-Terminal Distance Analysis
@@ -207,8 +226,19 @@ plt.figure(figsize=(12, 6))
 plt.hist(terminal_fraud['fraud_rate'], bins=30, color=get_catppuccin_colors(1)[0], alpha=0.7)
 plt.title('Distribution of Terminal Fraud Rates')
 plt.xlabel('Fraud Rate (%)')
-plt.ylabel('Number of Terminals')
+plt.ylabel('Number of Terminals (log scale)')
+plt.yscale('log')
 plt.show()
+
+# Print all terminals with fraud, ordered by fraud rate
+all_terminal_fraud = train_tx.groupby('TERMINAL_ID')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
+all_terminal_fraud = all_terminal_fraud[all_terminal_fraud['sum'] > 0]  # Exclude 0 fraud
+all_terminal_fraud['fraud_rate'] = all_terminal_fraud['mean'] * 100
+all_terminal_fraud_sorted = all_terminal_fraud.sort_values('fraud_rate', ascending=False)
+
+print("\nTerminals with Fraud (ordered by fraud rate):")
+for terminal_id, row in all_terminal_fraud_sorted.iterrows():
+    print(f"{terminal_id}: {row['fraud_rate']:.2f}%")
 
 # %% Customer Risk Profiles
 customer_fraud = train_tx.groupby('CUSTOMER_ID')['TX_FRAUD'].agg(['count', 'sum', 'mean'])
@@ -219,7 +249,8 @@ plt.figure(figsize=(10, 6))
 plt.hist(customer_fraud['fraud_rate'], bins=50, color=get_catppuccin_colors(1)[0], alpha=0.7)
 plt.title(f'Customer Fraud Rate Distribution\n{len(high_risk_customers)} customers with 2+ fraud incidents')
 plt.xlabel('Customer Fraud Rate (%)')
-plt.ylabel('Number of Customers')
+plt.ylabel('Number of Customers (log scale)')
+plt.yscale('log')
 plt.show()
 
 # %% Acquirer Performance

@@ -8,3 +8,4 @@ plots/
 *.zip
 **/*.pkl
 **/*.pth
+**/*.csv
