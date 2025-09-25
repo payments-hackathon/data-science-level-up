@@ -19,4 +19,6 @@ dependencies = [
     "seaborn>=0.13.2",
     "torch>=2.5.1",
     "xgboost>=2.1.4",
+    "catboost>=1.2.8",
+    "imblearn>=0.0",
 ]
