@@ -67,7 +67,8 @@ def train_model(X_train, y_train):
     
     model = FraudNet(X_train.shape[1])
     # Handle class imbalance
-    pos_weight = torch.tensor([y_train.mean() / (1 - y_train.mean())])
+    fraud_rate = y_train.mean()
+    pos_weight = torch.tensor([(1 - fraud_rate) / fraud_rate])
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     

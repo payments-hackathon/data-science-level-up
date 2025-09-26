@@ -1,4 +1,13 @@
+__pycache__/
+.amazonq/
+.vscode/
 .venv/
 data/
-__pycache__/
+plots/
+
 *.zip
+**/*.pkl
+**/*.pth
+**/*.csv
+**/*.txt
+**/*.png
