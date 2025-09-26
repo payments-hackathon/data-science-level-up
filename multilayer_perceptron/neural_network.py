@@ -31,6 +31,12 @@ df['is_weekend'] = (df['day_of_week'] >= 5).astype(int)
 df['is_night'] = ((df['hour'] >= 22) | (df['hour'] <= 6)).astype(int)
 df['is_business_hours'] = ((df['hour'] >= 9) & (df['hour'] <= 17)).astype(int)
 
+# Add more time-based features
+df['is_late_night'] = ((df['hour'] >= 0) & (df['hour'] <= 4)).astype(int)
+df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24.0)
+df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24.0)
+df['day_of_week_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7.0)
+df['day_of_week_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7.0)
 
 if 'x_customer_id' in df.columns and 'y_customer_id' in df.columns:
     df['distance'] = np.sqrt(
@@ -60,13 +66,23 @@ if 'CUSTOMER_ID' in df.columns:
     df = df.merge(customer_stats, on='CUSTOMER_ID', how='left')
     
     df['amount_deviation'] = np.abs(df['TX_AMOUNT'] - df['customer_avg_amount']) / (df['customer_std_amount'] + 1e-6)
+    
+    # Add more customer-based features
+    df['customer_amount_to_avg_ratio'] = df['TX_AMOUNT'] / (df['customer_avg_amount'] + 1e-6)
+    df['customer_tx_frequency'] = df['customer_tx_count'] / (df['TX_TS'].max() - df['TX_TS'].min()).total_seconds()
 
 terminal_stats = df.groupby('TERMINAL_ID').agg({
-    'TX_FRAUD': 'mean',  
-    'TX_AMOUNT': 'count' 
+    'TX_FRAUD': ['mean', 'std'],
+    'TX_AMOUNT': ['count', 'mean', 'std']
 }).reset_index()
-terminal_stats.columns = ['TERMINAL_ID', 'terminal_fraud_rate', 'terminal_tx_volume']
+
+terminal_stats.columns = ['TERMINAL_ID', 'terminal_fraud_rate', 'terminal_fraud_std', 
+                         'terminal_tx_volume', 'terminal_avg_amount', 'terminal_amount_std']
 df = df.merge(terminal_stats, on='TERMINAL_ID', how='left')
+
+# Add terminal risk features
+df['terminal_amount_deviation'] = np.abs(df['TX_AMOUNT'] - df['terminal_avg_amount']) / (df['terminal_amount_std'] + 1e-6)
+df['terminal_risk_score'] = df['terminal_fraud_rate'] * np.log1p(df['terminal_tx_volume'])
 
 columns_to_drop = []
 if 'CUSTOMER_ID' in df.columns:
@@ -167,16 +183,18 @@ val_loader = DataLoader(val_dataset, batch_size=1024, shuffle=False)
 class EnhancedFraudNet(nn.Module):
     def __init__(self, input_dim, dropout_rate=0.3):
         super(EnhancedFraudNet, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.fc2 = nn.Linear(128, 64)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.fc3 = nn.Linear(64, 32)
-        self.bn3 = nn.BatchNorm1d(32)
-        self.fc4 = nn.Linear(32, 16)
-        self.fc5 = nn.Linear(16, 1)
+        self.fc1 = nn.Linear(input_dim, 256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.fc2 = nn.Linear(256, 128)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.fc3 = nn.Linear(128, 64)
+        self.bn3 = nn.BatchNorm1d(64)
+        self.fc4 = nn.Linear(64, 32)
+        self.bn4 = nn.BatchNorm1d(32)
+        self.fc5 = nn.Linear(32, 16)
+        self.fc6 = nn.Linear(16, 1)
         
-        self.relu = nn.ReLU()
+        self.leaky_relu = nn.LeakyReLU(0.1)  
         self.dropout = nn.Dropout(dropout_rate)
         
         self.apply(self._init_weights)
@@ -187,14 +205,16 @@ class EnhancedFraudNet(nn.Module):
             nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        x = self.relu(self.bn1(self.fc1(x)))
+        x = self.leaky_relu(self.bn1(self.fc1(x)))
         x = self.dropout(x)
-        x = self.relu(self.bn2(self.fc2(x)))
+        x = self.leaky_relu(self.bn2(self.fc2(x)))
         x = self.dropout(x)
-        x = self.relu(self.bn3(self.fc3(x)))
+        x = self.leaky_relu(self.bn3(self.fc3(x)))
         x = self.dropout(x)
-        x = self.relu(self.fc4(x))
-        x = self.fc5(x)  
+        x = self.leaky_relu(self.bn4(self.fc4(x)))
+        x = self.dropout(x)
+        x = self.leaky_relu(self.fc5(x))
+        x = self.fc6(x)
         return x
 
 input_dim = X_train.shape[1]
@@ -208,13 +228,17 @@ except FileNotFoundError:
 
 num_pos = y_train.sum()
 num_neg = len(y_train) - num_pos
-pos_weight = torch.tensor([num_neg / num_pos * 0.7], dtype=torch.float32)  # Slightly reduce to prevent over-weighting
+pos_weight = torch.tensor([num_neg / num_pos], dtype=torch.float32)  # Use full weighting for better fraud detection
 
 print(f"Positive class weight: {pos_weight.item():.2f}")
 
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
+# Use lower learning rate and stronger regularization
+optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.02)
+
+# Add gradient clipping to prevent unstable training
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, verbose=True)
 
@@ -233,7 +257,7 @@ def find_optimal_threshold(y_true, y_pred_proba):
     
     return best_threshold, best_f1
 
-EPOCHS = 5
+EPOCHS = 10
 best_f1 = 0
 patience_counter = 0
 patience = 3
