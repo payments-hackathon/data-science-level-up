@@ -4,7 +4,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import LabelEncoder
 from deap import base, creator, tools, algorithms
@@ -13,7 +13,7 @@ import random
 # Load and prepare data
 def load_data():
     # Load training data
-    train_df = pd.read_csv('data/Payments Fraud DataSet/transactions_train.csv')
+    train_df = pd.read_csv('../data/Payments Fraud DataSet/transactions_train.csv')
     
     # Select key features for decision tree
     features = ['TX_AMOUNT', 'TRANSACTION_GOODS_AND_SERVICES_AMOUNT', 
